@@ -1,62 +1,78 @@
 pipeline {
-  agent any
+  agent {
+    docker {
+      image 'python:3.11'         // has venv/ensurepip preinstalled
+      args  '-u root'             // run as root in container (optional)
+    }
+  }
+
   options {
     timestamps()
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
-  environment { PYENV = '.venv' }
+
+  environment {
+    PYENV = '.venv'
+  }
 
   stages {
     stage('Checkout') {
       steps {
         checkout scm
         sh 'ls -la'
+        sh 'ls -la net-switch-automation'
       }
     }
 
     stage('Set up Python venv') {
       steps {
-        sh '''
-          python3 -m venv ${PYENV}
-          . ${PYENV}/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
-        '''
+        dir('net-switch-automation') {
+          sh '''
+            python3 -m venv ${PYENV}
+            . ${PYENV}/bin/activate
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+          '''
+        }
       }
     }
 
     stage('Unit & Integration tests') {
       steps {
-        sh '''
-          . ${PYENV}/bin/activate
-          mkdir -p reports
-          pytest -q \
-            --cov=src \
-            --cov-report=term-missing \
-            --cov-report=xml:reports/coverage.xml \
-            --cov-report=html:htmlcov \
-            --junitxml=reports/junit.xml
-        '''
+        dir('net-switch-automation') {
+          sh '''
+            . ${PYENV}/bin/activate
+            mkdir -p reports
+            pytest -q \
+              --cov=src \
+              --cov-report=term-missing \
+              --cov-report=xml:reports/coverage.xml \
+              --cov-report=html:htmlcov \
+              --junitxml=reports/junit.xml
+          '''
+        }
       }
       post {
         always {
-          junit 'reports/junit.xml'
-          // If HTML Publisher plugin isn’t installed yet, comment the next line.
-          publishHTML(target: [reportDir: 'htmlcov', reportFiles: 'index.html', reportName: 'Coverage HTML'])
-          archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
+          // comment out publishHTML if you don't have the plugin yet
+          publishHTML(target: [reportDir: 'net-switch-automation/htmlcov', reportFiles: 'index.html', reportName: 'Coverage HTML'])
+          junit 'net-switch-automation/reports/junit.xml'
+          archiveArtifacts artifacts: 'net-switch-automation/reports/**', allowEmptyArchive: true
         }
       }
     }
 
     stage('Coverage gate') {
       steps {
-        script {
-          def xml = readFile('reports/coverage.xml')
-          def m = xml =~ /line-rate="([0-9.]+)"/
-          if (!m) { error 'Could not parse coverage.xml for line-rate' }
-          def rate = (m[0][1] as double)
-          echo "Coverage line-rate: ${rate}"
-          if (rate < 0.90) { error "Coverage below threshold (90%). Failing the build." }
+        dir('net-switch-automation') {
+          script {
+            def xml = readFile('reports/coverage.xml')
+            def m = xml =~ /line-rate="([0-9.]+)"/
+            if (!m) { error 'Could not parse coverage.xml for line-rate' }
+            def rate = (m[0][1] as double)
+            echo "Coverage line-rate: ${rate}"
+            if (rate < 0.90) { error "Coverage below threshold (90%). Failing the build." }
+          }
         }
       }
     }
@@ -64,13 +80,15 @@ pipeline {
     stage('Plan & (Mock) Deploy') {
       when { branch 'main' }
       steps {
-        sh '''
-          . ${PYENV}/bin/activate
-          python - <<'PY'
+        dir('net-switch-automation') {
+          sh '''
+            . ${PYENV}/bin/activate
+            python - <<'PY'
 from src.generators.config_gen import render_ntp_from_file
 from src.pipeline.apply import apply_config
 from src.adapters.mock_cli import MockCLI
 from src.pipeline.plan import diff
+
 candidate = render_ntp_from_file('data/changes/change_001_ntp.yml')
 cli = MockCLI()
 running = cli.show_running_config()
@@ -79,7 +97,8 @@ print(diff(running, candidate))
 print('--- APPLY (mock) ---')
 print(apply_config(candidate))
 PY
-        '''
+          '''
+        }
       }
     }
   }
