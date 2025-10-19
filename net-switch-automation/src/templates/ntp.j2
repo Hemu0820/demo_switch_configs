@@ -1,0 +1,3 @@
+{%- for s in servers -%}
+ntp server {{ s }}{% if prefer and s == prefer %} prefer{% endif %}
+{%- endfor -%}

@@ -1,0 +1,11 @@
+# Example inventory of switches (illustrative)
+site: dc-01
+switches:
+  - name: sw01
+    os: nx-os
+    mgmt_ip: 10.0.0.11
+    role: access
+  - name: sw02
+    os: nx-os
+    mgmt_ip: 10.0.0.12
+    role: distribution

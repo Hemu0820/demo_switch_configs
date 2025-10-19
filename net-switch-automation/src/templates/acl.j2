@@ -1,0 +1,4 @@
+ip access-list extended APP-POLICY
+{%- for r in rules %}
+ {{ r.action }} {{ r.proto }} {{ r.src }} {{ r.dst }}{% if r.dport %} eq {{ r.dport }}{% endif %}
+{%- endfor %}

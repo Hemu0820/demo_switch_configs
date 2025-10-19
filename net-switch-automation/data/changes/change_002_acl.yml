@@ -1,0 +1,16 @@
+# ACL change request (SAFE baseline). Make it risky to see tests fail.
+rules:
+  - action: permit
+    proto: tcp
+    src: 10.10.0.0
+    dst: 10.20.0.0
+    dport: 443
+  - action: deny
+    proto: ip
+    src: 0.0.0.0
+    dst: 0.0.0.0
+# To simulate a failure, add this rule and re-run tests:
+#  - action: permit
+#    proto: ip
+#    src: 0.0.0.0
+#    dst: 0.0.0.0
