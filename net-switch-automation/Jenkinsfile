@@ -1,15 +1,10 @@
 pipeline {
   agent any
-
   options {
     timestamps()
-    ansiColor('xterm')
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
-
-  environment {
-    PYENV = '.venv'
-  }
+  environment { PYENV = '.venv' }
 
   stages {
     stage('Checkout') {
@@ -30,33 +25,24 @@ pipeline {
       }
     }
 
-    stage('Static checks (optional)') {
-      when { expression { return fileExists('ruff.toml') || fileExists('pyproject.toml') } }
-      steps {
-        sh '''
-          . ${PYENV}/bin/activate || true
-          which ruff && ruff . || true
-          which mypy && mypy src || true
-        '''
-      }
-    }
-
     stage('Unit & Integration tests') {
       steps {
         sh '''
           . ${PYENV}/bin/activate
           mkdir -p reports
-          pytest -q             --cov=src             --cov-report=term-missing             --cov-report=xml:reports/coverage.xml             --cov-report=html:htmlcov             --junitxml=reports/junit.xml
+          pytest -q \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml:reports/coverage.xml \
+            --cov-report=html:htmlcov \
+            --junitxml=reports/junit.xml
         '''
       }
       post {
         always {
           junit 'reports/junit.xml'
-          publishHTML(target: [
-            reportDir: 'htmlcov',
-            reportFiles: 'index.html',
-            reportName: 'Coverage HTML'
-          ])
+          // If HTML Publisher plugin isn’t installed yet, comment the next line.
+          publishHTML(target: [reportDir: 'htmlcov', reportFiles: 'index.html', reportName: 'Coverage HTML'])
           archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
         }
       }
@@ -65,15 +51,12 @@ pipeline {
     stage('Coverage gate') {
       steps {
         script {
-          // simple coverage threshold check (>= 90%)
           def xml = readFile('reports/coverage.xml')
           def m = xml =~ /line-rate="([0-9.]+)"/
           if (!m) { error 'Could not parse coverage.xml for line-rate' }
           def rate = (m[0][1] as double)
           echo "Coverage line-rate: ${rate}"
-          if (rate < 0.90) {
-            error "Coverage below threshold (90%). Failing the build."
-          }
+          if (rate < 0.90) { error "Coverage below threshold (90%). Failing the build." }
         }
       }
     }
@@ -88,7 +71,6 @@ from src.generators.config_gen import render_ntp_from_file
 from src.pipeline.apply import apply_config
 from src.adapters.mock_cli import MockCLI
 from src.pipeline.plan import diff
-
 candidate = render_ntp_from_file('data/changes/change_001_ntp.yml')
 cli = MockCLI()
 running = cli.show_running_config()
@@ -103,11 +85,7 @@ PY
   }
 
   post {
-    success {
-      echo 'Build succeeded ✅'
-    }
-    failure {
-      echo 'Build failed ❌'
-    }
+    success { echo 'Build succeeded ✅' }
+    failure { echo 'Build failed ❌' }
   }
 }
