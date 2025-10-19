@@ -1,19 +1,12 @@
 pipeline {
-  agent {
-    docker {
-      image 'python:3.11'         // has venv/ensurepip preinstalled
-      args  '-u root'             // run as root in container (optional)
-    }
-  }
+  agent any
 
   options {
     timestamps()
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
 
-  environment {
-    PYENV = '.venv'
-  }
+  environment { PYENV = '.venv' }
 
   stages {
     stage('Checkout') {
@@ -24,13 +17,35 @@ pipeline {
       }
     }
 
-    stage('Set up Python venv') {
+    stage('Prepare Python env') {
       steps {
         dir('net-switch-automation') {
           sh '''
-            python3 -m venv ${PYENV}
-            . ${PYENV}/bin/activate
-            python -m pip install --upgrade pip
+            set -eux
+
+            PYOK=0
+
+            # Try built-in venv first
+            if python3 -m venv "${PYENV}" >/dev/null 2>&1; then
+              . "${PYENV}/bin/activate"
+              python -m pip install --upgrade pip
+              PYOK=1
+            else
+              echo "python3 venv not available; trying virtualenv ..."
+              # Try virtualenv via pip (user-level if needed)
+              python3 -m pip install --user virtualenv || true
+              if python3 -m virtualenv "${PYENV}" >/dev/null 2>&1; then
+                . "${PYENV}/bin/activate"
+                python -m pip install --upgrade pip
+                PYOK=1
+              fi
+            fi
+
+            if [ "$PYOK" -ne 1 ]; then
+              echo "WARNING: Falling back to system Python (no venv)."
+              alias pip="python3 -m pip"
+            fi
+
             pip install -r requirements.txt
           '''
         }
@@ -41,7 +56,11 @@ pipeline {
       steps {
         dir('net-switch-automation') {
           sh '''
-            . ${PYENV}/bin/activate
+            set -eux
+            if [ -f "${PYENV}/bin/activate" ]; then
+              . "${PYENV}/bin/activate"
+            fi
+
             mkdir -p reports
             pytest -q \
               --cov=src \
@@ -54,8 +73,12 @@ pipeline {
       }
       post {
         always {
-          // comment out publishHTML if you don't have the plugin yet
-          publishHTML(target: [reportDir: 'net-switch-automation/htmlcov', reportFiles: 'index.html', reportName: 'Coverage HTML'])
+          // comment out if HTML Publisher plugin isn’t installed
+          publishHTML(target: [
+            reportDir: 'net-switch-automation/htmlcov',
+            reportFiles: 'index.html',
+            reportName: 'Coverage HTML'
+          ])
           junit 'net-switch-automation/reports/junit.xml'
           archiveArtifacts artifacts: 'net-switch-automation/reports/**', allowEmptyArchive: true
         }
@@ -82,7 +105,11 @@ pipeline {
       steps {
         dir('net-switch-automation') {
           sh '''
-            . ${PYENV}/bin/activate
+            set -eux
+            if [ -f "${PYENV}/bin/activate" ]; then
+              . "${PYENV}/bin/activate"
+            fi
+
             python - <<'PY'
 from src.generators.config_gen import render_ntp_from_file
 from src.pipeline.apply import apply_config
